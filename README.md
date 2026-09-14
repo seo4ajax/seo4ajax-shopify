@@ -230,9 +230,9 @@ instead, render the response without the theme by passing `{ layout: false }` to
 `liquid()`, and produce the whole document yourself.
 
 **Discovery.** Shopify's generated `/sitemap.xml` does not list app proxy URLs. Serve
-your own sitemap from the proxy — `/apps/my-page/sitemap.xml`, for instance — and reference
-it with a `Sitemap:` directive in the theme's `robots.txt.liquid`. Parameterised URLs
-also need ordinary `<a href>` links if crawlers are to find them.
+your own sitemap from the proxy — `/apps/my-page/sitemap.xml`, for instance — and
+reference it with a `Sitemap:` directive in the theme's `robots.txt.liquid`.
+Parameterised URLs also need ordinary `<a href>` links if crawlers are to find them.
 
 **During development.** `shopify app dev` publishes a tunnel URL that changes every
 time it restarts, and the app proxy URL registered for a shop does not follow it
