@@ -23,9 +23,9 @@ Two consequences follow:
   regular pages have no request hook.
 - Those pages live under a fixed prefix. `prefix` must be one of `a`, `apps`,
   `community` or `tools`, and `subpath` is a single segment of letters, digits,
-  underscores and hyphens. A page reachable at `https://<shop>/apps/faq` is possible;
-  one at `https://<shop>/support/faq` is not. When you are moving a JavaScript-rendered
-  page onto Shopify, redirect its former address to the new one.
+  underscores and hyphens. A page reachable at `https://<shop>/apps/my-page` is
+  possible; one at `https://<shop>/support/my-page` is not. When you are moving a
+  JavaScript-rendered page onto Shopify, redirect its former address to the new one.
 
 ## Requirements
 
@@ -46,12 +46,12 @@ Two consequences follow:
    [app_proxy]
    url = "/seo4ajax-proxy"
    prefix = "apps"
-   subpath = "faq"
+   subpath = "my-page"
    ```
 
    `url` may be relative to `application_url`, as above, or absolute. The page is then
-   served at `https://<shop>/apps/faq`, and `https://<shop>/apps/faq/child` reaches
-   `<application_url>/seo4ajax-proxy/child`.
+   served at `https://<shop>/apps/my-page`, and `https://<shop>/apps/my-page/child`
+   reaches `<application_url>/seo4ajax-proxy/child`.
 
 2. Add the site token to your app's environment, as `SEO4AJAX_SITE_TOKEN`.
 
@@ -68,8 +68,8 @@ Two consequences follow:
 6. Check the result, with and without a crawler user agent:
 
    ```sh
-   curl -A "Googlebot" https://<shop>/apps/faq   # the prerendered snapshot
-   curl https://<shop>/apps/faq                  # the client-side page
+   curl -A "Googlebot" https://<shop>/apps/my-page   # the prerendered snapshot
+   curl https://<shop>/apps/my-page                  # the client-side page
    ```
 
 ## Code
@@ -131,9 +131,9 @@ export const loader = async ({ request }) => {
     return liquid(PAGE);
 };
 
-// A crawler asked for the storefront URL (/apps/faq/...), not the app's internal path,
-// and the storefront URL is the one SEO4Ajax has a snapshot for. Shopify passes the
-// storefront prefix along as path_prefix.
+// A crawler asked for the storefront URL (/apps/my-page/...), not the app's internal
+// path, and the storefront URL is the one SEO4Ajax has a snapshot for. Shopify passes
+// the storefront prefix along as path_prefix.
 function storefrontPath(url) {
     const prefix = url.searchParams.get("path_prefix") ?? APP_PATH;
     const rest = url.pathname.startsWith(APP_PATH)
@@ -212,7 +212,7 @@ function forwardedHeaders(request) {
 **Query parameters.** Shopify forwards the original query string and appends `shop`,
 `path_prefix`, `timestamp`, `signature` and `logged_in_customer_id`. Only the original
 parameters belong in the snapshot URL, which is what `storefrontSearch` takes care of.
-The browser's address stays `/apps/faq?...`, so each combination of parameters is a
+The browser's address stays `/apps/my-page?...`, so each combination of parameters is a
 distinct URL that SEO4Ajax prerenders separately, and client-side code reading
 `location.search` behaves as it does anywhere else. Values kept in the fragment
 (`#...`) cannot be prerendered, since a fragment never reaches the server.
@@ -230,7 +230,7 @@ instead, render the response without the theme by passing `{ layout: false }` to
 `liquid()`, and produce the whole document yourself.
 
 **Discovery.** Shopify's generated `/sitemap.xml` does not list app proxy URLs. Serve
-your own sitemap from the proxy — `/apps/faq/sitemap.xml`, for instance — and reference
+your own sitemap from the proxy — `/apps/my-page/sitemap.xml`, for instance — and reference
 it with a `Sitemap:` directive in the theme's `robots.txt.liquid`. Parameterised URLs
 also need ordinary `<a href>` links if crawlers are to find them.
 
