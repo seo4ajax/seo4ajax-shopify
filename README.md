@@ -27,6 +27,11 @@ Two consequences follow:
   possible; one at `https://<shop>/support/my-page` is not. When you are moving a
   JavaScript-rendered page onto Shopify, redirect its former address to the new one.
 
+The route also re-serves the sitemap that SEO4Ajax builds from the URLs it has
+prerendered, at `https://<shop>/apps/my-page/sitemap.xml`. Unlike a snapshot it goes to
+every visitor, crawler or not: it is one document, the same for all of them, and a
+sitemap only a crawler can reach is a sitemap nobody can debug.
+
 ## Requirements
 
 - A Shopify app. The route below uses the React Router app template and
@@ -61,15 +66,30 @@ Two consequences follow:
 4. Replace the contents of `PAGE` with your own page: the element your client-side
    application mounts into, and the script that renders it.
 
-5. Deploy the app with `shopify app deploy`, then **install it on the shop, or
+5. Announce the sitemap to crawlers. Nothing links to it, so add a `Sitemap` directive
+   at the end of the theme's `robots.txt.liquid` (Online Store > Themes > … > Edit code,
+   creating the template if it does not exist yet):
+
+   ```liquid
+   {%- comment -%} Liquid for the default rules, then: {%- endcomment -%}
+
+   Sitemap: https://<shop>/apps/my-page/sitemap.xml
+   ```
+
+   Shopify's own sitemap stays where it is; a host may declare more than one. Do this
+   only once the SEO4Ajax site is registered for the storefront's own domain — see
+   **The sitemap** below.
+
+6. Deploy the app with `shopify app deploy`, then **install it on the shop, or
    reinstall it if it is already installed**. Changes to `prefix` and `subpath` only
    take effect for new installations.
 
-6. Check the result, with and without a crawler user agent:
+7. Check the result, with and without a crawler user agent:
 
    ```sh
-   curl -A "Googlebot" https://<shop>/apps/my-page   # the prerendered snapshot
-   curl https://<shop>/apps/my-page                  # the client-side page
+   curl -A "Googlebot" https://<shop>/apps/my-page  # the prerendered snapshot
+   curl https://<shop>/apps/my-page                 # the client-side page
+   curl -i https://<shop>/apps/my-page/sitemap.xml  # the sitemap, for either of them
    ```
 
 ## Code
@@ -104,6 +124,14 @@ const APP_PATH = "/seo4ajax-proxy";
 // client-side version instead.
 const API_TIMEOUT_MS = 5000;
 
+// Where the sitemap is served, relative to the proxy subpath: Shopify owns
+// /sitemap.xml at the domain root, and an app proxy only answers below its own prefix.
+const SITEMAP_PATH = "/sitemap.xml";
+
+// How long a crawler may reuse the sitemap. Shopify does not CDN-cache app proxy
+// responses, so this only reaches the client that asked.
+const SITEMAP_MAX_AGE_S = 3600;
+
 // Your page. Liquid is rendered here in the context of the shop's theme, so the parts
 // that are not produced by JavaScript can come from Shopify rather than from this file:
 // {{ pages['<handle>'].content }} for content edited in the admin, {% render %} for a
@@ -119,6 +147,18 @@ export const loader = async ({ request }) => {
     const url = new URL(request.url);
     const userAgent = request.headers.get("user-agent");
 
+    if (appRelativePath(url) === SITEMAP_PATH) {
+        // 503 rather than the page: the client asked for XML, and "come back later" is
+        // what an unreadable sitemap actually means.
+        return (
+            (await fetchSitemap()) ??
+            new Response("Sitemap unavailable\n", {
+                status: 503,
+                headers: { "content-type": "text/plain; charset=utf-8", "retry-after": "300" },
+            })
+        );
+    }
+
     if (userAgent && !SCRAPER_TEST.test(userAgent) && USER_AGENT_TEST.test(userAgent)) {
         if (!FILENAME_EXTENSION_TEST.test(storefrontPath(url))) {
             const snapshot = await fetchSnapshot(url, request);
@@ -131,16 +171,19 @@ export const loader = async ({ request }) => {
     return liquid(PAGE);
 };
 
+// What the visitor asked for below the proxy subpath, with the app's own mount point
+// removed: "" for /apps/my-page, "/sitemap.xml" for /apps/my-page/sitemap.xml.
+function appRelativePath(url) {
+    return url.pathname.startsWith(APP_PATH) ? url.pathname.slice(APP_PATH.length) : url.pathname;
+}
+
 // A crawler asked for the storefront URL (/apps/my-page/...), not the app's internal
 // path, and the storefront URL is the one SEO4Ajax has a snapshot for. Shopify passes
 // the storefront prefix along as path_prefix.
 function storefrontPath(url) {
     const prefix = url.searchParams.get("path_prefix") ?? APP_PATH;
-    const rest = url.pathname.startsWith(APP_PATH)
-        ? url.pathname.slice(APP_PATH.length)
-        : url.pathname;
 
-    return prefix + rest;
+    return prefix + appRelativePath(url);
 }
 
 function storefrontSearch(url) {
@@ -190,6 +233,41 @@ async function fetchSnapshot(url, request) {
     }
 }
 
+// Returns null whenever the sitemap could not be read, so the caller can answer 503. No
+// user agent and no query string are passed on: unlike a snapshot, the sitemap is one
+// document, identical for every caller.
+async function fetchSitemap() {
+    if (!SITE_TOKEN) {
+        console.error("[seo4ajax] SEO4AJAX_SITE_TOKEN is not set");
+        return null;
+    }
+
+    const target = API_URL + SITE_TOKEN + SITEMAP_PATH;
+
+    try {
+        const response = await fetch(target, { signal: AbortSignal.timeout(API_TIMEOUT_MS) });
+
+        if (!response.ok) {
+            console.warn(`[seo4ajax] ${response.status} from ${target}`);
+            return null;
+        }
+
+        const headers = new Headers({
+            "content-type": response.headers.get("content-type") ?? "application/xml",
+            "cache-control": `public, max-age=${SITEMAP_MAX_AGE_S}`,
+        });
+        const robotsTag = response.headers.get("x-robots-tag");
+        if (robotsTag) {
+            headers.set("x-robots-tag", robotsTag);
+        }
+
+        return new Response(await response.text(), { headers });
+    } catch (error) {
+        console.warn(`[seo4ajax] ${error.message} while fetching ${target}`);
+        return null;
+    }
+}
+
 // Let SEO4Ajax see which crawler this is and where it came from.
 function forwardedHeaders(request) {
     const headers = new Headers();
@@ -229,10 +307,31 @@ snapshot is taken after JavaScript has run. To control the `<head>` server-side
 instead, render the response without the theme by passing `{ layout: false }` to
 `liquid()`, and produce the whole document yourself.
 
-**Discovery.** Shopify's generated `/sitemap.xml` does not list app proxy URLs. Serve
-your own sitemap from the proxy — `/apps/my-page/sitemap.xml`, for instance — and
-reference it with a `Sitemap:` directive in the theme's `robots.txt.liquid`.
-Parameterised URLs also need ordinary `<a href>` links if crawlers are to find them.
+**The sitemap.** SEO4Ajax publishes a sitemap of the URLs it has prerendered, at
+`https://api.seo4ajax.com/<site-token>/sitemap.xml`, and `fetchSitemap` re-serves it
+under the proxy. It cannot replace the shop's own `/sitemap.xml`: that one is generated
+by Shopify, does not list app proxy URLs, and an app proxy cannot answer a root path.
+Hence a second sitemap, declared from `robots.txt.liquid`.
+
+Its `<loc>` entries are the URLs of the site as registered in SEO4Ajax, so that site's
+domain and paths have to be the storefront's before you add the `Sitemap` directive — on
+a live shop, a sitemap pointing at another host is worse than no sitemap at all. The code
+above deliberately does not rewrite them: a sitemap has to list URLs that exist, and the
+storefront's cannot be derived from another site's by substituting a hostname.
+
+Two smaller points. The response carries SEO4Ajax's `X-Robots-Tag: noindex`, which keeps
+the sitemap file itself out of the index without affecting the URLs listed inside it. And
+SEO4Ajax returns a single flat `<urlset>`; if a site ever passed the 50,000-URL limit of
+the sitemap protocol and had to be split behind a sitemap index, the child sitemaps would
+need to be reachable through the proxy too, which the code above does not do.
+
+On a shop with several domains, `Sitemap: {{ request.origin }}/apps/my-page/sitemap.xml`
+would make the directive follow whichever host is being served. The `request` object is
+not documented as available in `robots.txt.liquid`, so check that it renders before
+relying on it, and otherwise write the primary domain out in full.
+
+**Linking.** Parameterised URLs also need ordinary `<a href>` links if crawlers are to
+reach them by following the site rather than only through the sitemap.
 
 **During development.** `shopify app dev` publishes a tunnel URL that changes every
 time it restarts, and the app proxy URL registered for a shop does not follow it
