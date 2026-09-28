@@ -76,9 +76,9 @@ sitemap only a crawler can reach is a sitemap nobody can debug.
    Sitemap: https://<shop>/apps/my-page/sitemap.xml
    ```
 
-   Shopify's own sitemap stays where it is; a host may declare more than one. Do this
-   only once the SEO4Ajax site is registered for the storefront's own domain — see
-   **The sitemap** below.
+   Shopify's own sitemap stays where it is; a host may declare more than one. Add this
+   line once the sitemap lists storefront URLs rather than those of the site the content
+   is moving from — see **The sitemap** below.
 
 6. Deploy the app with `shopify app deploy`, then **install it on the shop, or
    reinstall it if it is already installed**. Changes to `prefix` and `subpath` only
@@ -313,11 +313,15 @@ under the proxy. It cannot replace the shop's own `/sitemap.xml`: that one is ge
 by Shopify, does not list app proxy URLs, and an app proxy cannot answer a root path.
 Hence a second sitemap, declared from `robots.txt.liquid`.
 
-Its `<loc>` entries are the URLs of the site as registered in SEO4Ajax, so that site's
-domain and paths have to be the storefront's before you add the `Sitemap` directive — on
-a live shop, a sitemap pointing at another host is worse than no sitemap at all. The code
-above deliberately does not rewrite them: a sitemap has to list URLs that exist, and the
-storefront's cannot be derived from another site's by substituting a hostname.
+Its `<loc>` entries are the URLs of the site as registered in SEO4Ajax, which need not be
+the storefront's while the page is still being built: a sitemap is allowed to list URLs on
+another host, and Google reads sitemaps hosted centrally for several domains. What it asks
+is that a site's `robots.txt` reference only that site's own sitemap, and that URLs on
+other domains belong to properties verified in Search Console. The `Sitemap` directive of
+step 5 is therefore the part to time — add it once the sitemap lists storefront URLs
+rather than those of the site the content is moving from. The code above deliberately does
+not rewrite the hosts: a sitemap has to list URLs that exist, and the storefront's cannot
+be derived from another site's by substituting a hostname.
 
 Two smaller points. The response carries SEO4Ajax's `X-Robots-Tag: noindex`, which keeps
 the sitemap file itself out of the index without affecting the URLs listed inside it. And
